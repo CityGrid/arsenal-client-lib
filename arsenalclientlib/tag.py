@@ -31,72 +31,10 @@ class Tag(Arsenal):
         """Search for tags and perform optional assignment
            actions."""
     
-        log.debug('action_command is: {0}'.format(args.action_command))
-        log.debug('object_type is: {0}'.format(args.object_type))
-    
-        if args.set_tags:
-            set_tag(args)
-    
-        # switch to any if there's more than one
-        if not args.set_tags:
-    
-            results = self.object_search(args)
-    
-            if args.fields:
-                for r in results:
-                    print '- {0}'.format(r['tag_name'])
-                    if args.fields == 'all':
-                        for f in r.keys():
-                            if f == 'tag_name':
-                                continue
-                            print '    {0}: {1}'.format(f, r[f])
-                    else:
-                        for f in list(args.fields.split(",")):
-                            if f == 'tag_name':
-                                continue
-                            print '    {0}: {1}'.format(f, r[f])
-            # Default to returning just the tag name
-            else:
-                for r in results:
-                    print r['tag_name']
-    
-    
-    def manage_tag_assignments(self, args, objects, action_object, api_action = 'set'):
-        """Assign or De-assign tags to one or more objects (nodes or node_groups)."""
-    
-        log.debug('action_command is: {0}'.format(args.action_command))
-        log.debug('object_type is: {0}'.format(args.object_type))
-    
-        o_id = action_object + '_id'
-        o_name = action_object + '_name'
-        # FIXME: clunky
-        if api_action == 'delete':
-            my_tags = args.del_tags
-            http_method = 'delete'
-        else:
-            my_tags = args.set_tags
-            http_method = 'put'
-    
-        tags = []
-        for t in my_tags.split(','):
-            lst = t.split('=')
-            data = {'tag_name': lst[0],
-                    'tag_value': lst[1]
-            }
-            r = self.api_submit('/api/tags', data, method='get_params')
-            if r:
-                tags.append(r[0])
-            else:
-                log.info('tag not found, creating')
-                r = self.api_submit('/api/tags', data, method='put')
-                tags.append(r)
-    
-        for o in objects:
-            for t in tags:
-                log.info('{0} tag {1}={2} to {3}={4}'.format(api_action, t['tag_name'], t['tag_value'], o_name, o[o_name]))
-                data = {o_id: o[o_id],
-                        'tag_id': t['tag_id']}
-                self.api_submit('/api/tag_{0}_assignments'.format(action_object), data, method=http_method)
+        results = self.object_search(args)
+
+        if results:
+            return results
     
     
     def create_tags(self, args):

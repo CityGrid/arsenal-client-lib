@@ -18,7 +18,6 @@ import sys
 import ConfigParser
 import logging
 import subprocess
-import collections
 import requests
 import json
 import getpass
@@ -69,10 +68,10 @@ class Arsenal(object):
 
         # Read values from args if present
         if args:
+            log_overrides = []
             for k, v in args.__dict__.items():
                 if v:
-                    # FIXME: Try and find a way around logger not being configured yet other than print.
-                    print ('overriding conf file with arg: {0}={1}'.format(k, v))
+                    log_overrides.append('overriding conf file with arg: {0}={1}'.format(k, v))
                     setattr(self, k, v)
 
             # FIXME: Should we write to the log file at INFO even when console is ERROR?
@@ -98,6 +97,9 @@ class Arsenal(object):
         formatter = logging.Formatter('%(levelname)-8s- %(message)s')
         console.setFormatter(formatter)
         root.addHandler(console)
+
+        for lor in log_overrides:
+            log.debug(lor)
 
         if self.secret_conf:
             log.info('reading from secret conf: {0}'.format(self.secret_conf))
@@ -304,7 +306,7 @@ class Arsenal(object):
         api_endpoint = '/api/{0}'.format(args.object_type)
         results = self.api_submit(api_endpoint, data, method='get_params')
     
-        # The client doesn't need metadata
+        # FIXME: The client doesn't need metadata, or does it???
         if not results['results']:
             log.info('No results found for search.')
             return None
@@ -312,6 +314,7 @@ class Arsenal(object):
             r = results['results']
             return r
     
+
     def facter(self):
         """Reads in facts from facter"""
     
@@ -383,15 +386,3 @@ class Arsenal(object):
                 sys.stdout.write("Please respond with 'yes' or 'no' "
                                  "(or 'y' or 'n').\n")
     
-    
-    def convert(self, data):
-        """Helper method to format output. (might not be final solution)"""
-    
-        if isinstance(data, basestring):
-            return str(data)
-        elif isinstance(data, collections.Mapping):
-            return dict(map(self.convert, data.iteritems()))
-        elif isinstance(data, collections.Iterable):
-            return type(data)(map(self.convert, data))
-        else:
-            return data

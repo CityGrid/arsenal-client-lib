@@ -14,10 +14,7 @@
 #  limitations under the License.
 #
 import logging
-import types
-import yaml
 from arsenalclientlib import Arsenal
-from tag import Tag
 
 log = logging.getLogger(__name__)
 
@@ -33,57 +30,55 @@ class NodeGroup(Arsenal):
 
 
     def search_node_groups(self, args):
-        """Search for node groups and perform optional assignment
-           actions."""
+        """Search for node_groups."""
     
+        results = self.object_search(args)
+
+        if results:
+            return results
+
+
+    # FIXME: duplicated in nodes
+    def manage_tag_assignments(self, args, objects, action_object, api_action = 'put'):
+        """Assign or De-assign tags to one or more node_groups."""
+
         log.debug('action_command is: {0}'.format(args.action_command))
         log.debug('object_type is: {0}'.format(args.object_type))
-    
-        if (args.set_tags or args.del_tags):
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for ng in results:
-                    r_names.append('node_group_name={0},node_group_id={1}'.format(ng['node_group_name'], ng['node_group_id']))
-                if self.ask_yes_no("We are ready to update the following node_groups: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    api_action = 'set'
-                    if args.del_tags:
-                        api_action = 'delete'
-                    # FIXME: don't love this
-                    Tag.manage_tag_assignments(args, results, 'node_group', api_action)
-     
-        if not any((args.set_tags, args.del_tags)):
-    
-            results = self.object_search(args)
-    
-            if results:
-                if args.fields:
-                    for r in results:
-                        print '- {0}'.format(r['node_group_name'])
-                        #FIXME: gross output, duplicate code
-                        if args.fields == 'all':
-                            for f in r.keys():
-                                if f == 'node_group_name':
-                                    continue
-                                if type(r[f]) is types.ListType:
-                                    print '{0}: \n{1}'.format(f, yaml.safe_dump(r[f], encoding='utf-8', allow_unicode=True))
-                                else:
-                                    print '    {0}: {1}'.format(f, r[f])
-                        else:
-                            for f in list(args.fields.split(",")):
-                                if f == 'node_group_name':
-                                    continue
-                                if type(r[f]) is types.ListType:
-                                    print '{0}: \n{1}'.format(f, yaml.safe_dump(r[f], encoding='utf-8', allow_unicode=True))
-                                else:
-                                    print '    {0}: {1}'.format(f, r[f])
-    
-                # Default to returning just the node_group name
-                else:
-                    for r in results:
-                        print r['node_group_name']
-    
-    
+
+        o_id = action_object + '_id'
+        o_name = action_object + '_name'
+        # FIXME: clunky
+        if api_action == 'delete':
+            my_tags = args.del_tags
+            http_method = 'delete'
+        else:
+            my_tags = args.set_tags
+            http_method = 'put'
+
+        tags = []
+        for t in my_tags.split(','):
+            lst = t.split('=')
+            data = {'tag_name': lst[0],
+                    'tag_value': lst[1]
+            }
+            r = self.api_submit('/api/tags', data, method='get_params')
+            # FIXME: need checking on unique results
+            if r['results']:
+                tags.append(r['results'][0])
+            else:
+                if http_method == 'put':
+                    log.info('tag not found, creating')
+                    r = self.api_submit('/api/tags', data, method='put')
+                    tags.append(r)
+
+        for o in objects:
+            for t in tags:
+                log.info('{0} tag {1}={2} to {3}={4}'.format(api_action, t['tag_name'], t['tag_value'], o_name, o[o_name]))
+                data = {o_id: o[o_id],
+                        'tag_id': t['tag_id']}
+                self.api_submit('/api/tag_{0}_assignments'.format(action_object), data, method=http_method)
+
+
     def create_node_groups(self, args):
         """Create a new node_group."""
     

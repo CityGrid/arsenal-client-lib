@@ -17,15 +17,12 @@ import os
 import subprocess
 import re
 import json
-import yaml
-import types
 import logging
 
 from arsenalclientlib import Arsenal
 from hardware_profile import HardwareProfile
 from operating_system import OperatingSystem
 from ec2 import Ec2
-from tag import Tag
 
 log = logging.getLogger(__name__)
 
@@ -192,142 +189,80 @@ class Node(Arsenal):
 
 
     def search_nodes(self, args):
-        """Search for nodes and perform optional assignment
-           actions."""
+        """Search for nodes."""
     
         log.debug('action_command is: {0}'.format(args.action_command))
         log.debug('object_type is: {0}'.format(args.object_type))
     
-        # FIXME: Ths is going to get ugly real fast
-#        actions = ['set_tags', 'set_status', 'set_node_groups', 'del_node_groups']
-#        for a in actions:
-#            foo = getattr(args, a)()
-#            print "FOO IS: ", foo
-#            if foo:
-#               globals()[foo](args)
-        # FIXME: duped code for set and del
-        if args.set_tags:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    Tag.manage_tag_assignments(args, results, 'node')
-        if args.del_tags:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    # FIXME: don't love this
-                    Tag.manage_tag_assignments(args, results, 'node', 'delete')
-        if args.set_status:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    self._set_status(args, results)
-        if args.set_node_groups:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    self._manage_node_group_assignments(args, results)
-        if args.del_node_groups:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    self._manage_node_group_assignments(args, results)
-        if args.set_hypervisor:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    self._manage_hypervisor_assignments(args, results)
-        if args.del_hypervisor:
-            results = self.object_search(args)
-            if results:
-                r_names = []
-                for n in results:
-                    r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-                if self.ask_yes_no("We are ready to update the following nodes: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                    self._manage_hypervisor_assignments(args, results)
+        results = self.object_search(args)
     
-        if not any((args.set_tags,
-                    args.del_tags,
-                    args.set_status,
-                    args.set_node_groups,
-                    args.del_node_groups,
-                    args.set_hypervisor,
-                    args.del_hypervisor)):
-    
-            results = self.object_search(args)
-    
-            if results:
-                # FIXME: Doesn't work beyond the top level for individual fields
-                if args.fields:
-                    for r in results:
-                        print '- {0}\n'.format(r['node_name'])
-#                        print res['status']['status_name']
-                        if args.fields == 'all':
-                            # FIXME: Is this really the best way?
-                            # This produces ugly formatting
-                            # print(yaml.safe_dump(r, encoding='utf-8', allow_unicode=True))
-                            #print(yaml.dump(r, default_flow_style=False))
-                            c = self.convert(r)
-#                            f = (yaml.dump(c, default_flow_style=False, encoding='utf-8', allow_unicode=True, indent=2))
-#                            print textwrap.fill(f, initial_indent='', subsequent_indent='    ')
-                            print(yaml.dump(c, default_flow_style=False, encoding='utf-8', allow_unicode=True, indent=2))
-    
-#                            print json.dumps(r, default=lambda o: o.__dict__, sort_keys=True,
-#                                             indent=2, separators=(',', ': ')).
-    
-                            #for f in r.keys():
-                            #    if f == 'node_name':
-                            #        continue
-                            #    print '    {0}: {1}'.format(f, r[f])
-                        else:
-                            for f in list(args.fields.split(",")):
-                                if f == 'node_name':
-                                    continue
-                                if type(r[f]) is types.ListType:
-                                    print '{0}: \n{1}'.format(f, yaml.safe_dump(r[f], encoding='utf-8', allow_unicode=True))
-                                else:
-                                    print '    {0}: {1}'.format(f, r[f])
-                # Default to returning just the node name
-                else:
-                    for r in results:
-                        print r['node_name']
+        if results:
+            return results
 
 
-    def _set_status(self, args, nodes):
+    def set_status(self, status, nodes):
         """Set the status of one or more nodes."""
     
+        log.info('searching for status={0}'.format(status))
+    
+        data = {'status_name': status}
+        r = self.api_submit('/api/statuses', data, method='get_params')
+    
+        if r['results']:
+            if r['meta']['total'] == 1:
+                data = {'status_id': r['results'][0]['status_id']}
+
+                for n in nodes:
+                    log.info('Setting status node={0},status={1}'.format(n['node_name'], r['results'][0]['status_name']))
+                    self.api_submit('/api/nodes/{0}'.format(n['node_id']), data, method='put')
+            else:
+                log.error('More than one result found for status={0}'.format(status))
+        else:
+            log.error('No results found for status={0}'.format(status))
+
+
+    # FIXME: duplicated in node_groups
+    def manage_tag_assignments(self, args, objects, action_object, api_action = 'put'):
+        """Assign or De-assign tags to one or more nodes."""
+
         log.debug('action_command is: {0}'.format(args.action_command))
         log.debug('object_type is: {0}'.format(args.object_type))
+
+        o_id = action_object + '_id'
+        o_name = action_object + '_name'
+        # FIXME: clunky
+        if api_action == 'delete':
+            my_tags = args.del_tags
+            http_method = 'delete'
+        else:
+            my_tags = args.set_tags
+            http_method = 'put'
+
+        tags = []
+        for t in my_tags.split(','):
+            lst = t.split('=')
+            data = {'tag_name': lst[0],
+                    'tag_value': lst[1]
+            }
+            r = self.api_submit('/api/tags', data, method='get_params')
+            # FIXME: need checking on unique results
+            if r['results']:
+                tags.append(r['results'][0])
+            else:
+                if http_method == 'put':
+                    log.info('tag not found, creating')
+                    r = self.api_submit('/api/tags', data, method='put')
+                    tags.append(r)
+
+        for o in objects:
+            for t in tags:
+                log.info('{0} tag {1}={2} to {3}={4}'.format(api_action, t['tag_name'], t['tag_value'], o_name, o[o_name]))
+                data = {o_id: o[o_id],
+                        'tag_id': t['tag_id']}
+                self.api_submit('/api/tag_{0}_assignments'.format(action_object), data, method=http_method)
     
-        data = {'status_name': args.set_status}
-        status = self.api_submit('/api/statuses', data, method='get_params')
     
-        data = {'status_id': status['status_id']}
-    
-        for n in nodes:
-            log.info('Setting status node={0},status={1}'.format(n['node_name'], status['status_name']))
-            self.api_submit('/api/nodes/{0}'.format(n['node_id']), data, method='put')
-    
-    
-    def _manage_node_group_assignments(self, args, nodes):
+    def manage_node_group_assignments(self, args, nodes):
         """Assign or De-assign node_groups to one or more nodes."""
     
         log.debug('action_command is: {0}'.format(args.action_command))
@@ -344,10 +279,10 @@ class Node(Arsenal):
     
         node_groups = []
         for ng in node_groups_list.split(','):
-            data = {'node_group_name': ng}
+            data = {'exact_get': True, 'node_group_name': ng}
             r = self.api_submit('/api/node_groups', data, method='get_params')
-            if r:
-                node_groups.append(r[0])
+            if r['results']:
+                node_groups.append(r['results'][0])
     
         for n in nodes:
             for ng in node_groups:
@@ -357,7 +292,7 @@ class Node(Arsenal):
                 self.api_submit('/api/node_group_assignments', data, method=api_action)
     
     
-    def _manage_hypervisor_assignments(self, args, nodes):
+    def manage_hypervisor_assignments(self, args, nodes):
         """Assign or De-assign a hypervisor to one or more nodes."""
     
         log.debug('action_command is: {0}'.format(args.action_command))
