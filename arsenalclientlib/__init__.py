@@ -20,9 +20,6 @@ import re
 import ConfigParser
 import logging
 import json
-import yaml
-import collections
-import types
 import getpass
 import ast
 import requests
@@ -58,7 +55,6 @@ Usage::
   >>> client.manage_hypervisor_assignments('00:11:22:33:44:55', <object_search results>, 'put')
   <Response [200]>
 """
-
 
 
 def facter():
@@ -174,19 +170,22 @@ def check_response_codes(r):
 
     if r.status_code == requests.codes.ok:
         log.info('Command successful.')
-        # FIXME: These are bogus respoonses
-        return '<Response 200>'
-    elif r.status_code == requests.codes.conflict:
-        log.info('Resource already exists.')
-        return '<Response 409>'
+        return r.json()
+    # FIXME: These are bogus respoonses
+    elif r.status_code == requests.codes.unauthorized:
+        log.info('Unauthorized.')
+        return '<Response 401>'
+    elif r.status_code == requests.codes.forbidden:
+        log.info('Access Forbidden.')
+        return '<Response 403>'
     elif r.status_code == requests.codes.not_found:
         log.info('Resource not found')
         return '<Response 404>'
-    elif r.status_code == requests.codes.forbidden:
-        log.info('Authorization failed.')
-        return '<Response 404>'
+    elif r.status_code == requests.codes.conflict:
+        log.info('Resource already exists.')
+        return '<Response 409>'
     else:
-        log.info('Command failed.')
+        log.info('Command failed. status_code={0}'.format(r.status_code))
         sys.exit(1)
 
 
@@ -245,18 +244,28 @@ def api_submit(request, data=None, method='get'):
     return None
 
 
-def object_search(args):
-    """Main serach function to query the API."""
+def object_search(object_type, search, exact_get = None):
+    """Main serach function to query the API.
 
-    log.debug('Searching for {0}'.format(args.object_type))
-    log.debug('action_command is: {0}'.format(args.action_command))
+    :arg object_type: The type of object we are searching for (nodes, node_groups, statuses, etc.)
+    :arg search: The key=value search terms. Multiple values separated by comma (,). Multiple keys sparated by colon (:).
+    :arg exact_get: Whether to search for terms exactly or use losse filtering.
 
-    search_terms = list(args.search.split(","))
+    Usage::
+
+      >>> client.object_search('nodes', 'node_name=myserver,unique_id=1234', True)
+      <Response [200]>
+    """
+
+    log.debug('Searching for {0}'.format(object_type))
+
+    search_terms = list(search.split(":"))
     data = dict(u.split("=") for u in search_terms)
-    data['exact_get'] = args.exact_get
+    data['exact_get'] = exact_get
+
     log.debug('data is: {0}'.format(data))
 
-    api_endpoint = '/api/{0}'.format(args.object_type)
+    api_endpoint = '/api/{0}'.format(object_type)
     results = api_submit(api_endpoint, data, method='get_params')
 
     # FIXME: The client doesn't need metadata. or does it???
@@ -401,127 +410,118 @@ def collect_data():
     return data
 
 
-def ask_yes_no(question, answer_yes=None, default='no'):
-    """Ask a yes/no question via raw_input() and return their answer.
-
-    "question" is a string that is presented to the user.
-    "default" is the presumed answer if the user just hits <Enter>.
-        It must be "yes" (the default), "no" or None (meaning
-        an answer is required of the user).
-
-    The "answer" return value is True for "yes" or False for "no".
-    """
-
-    if answer_yes:
-        return True
-
-    valid = {"yes": True, "y": True, "ye": True,
-             "no": False, "n": False}
-    if default is None:
-        prompt = " [y/n] "
-    elif default == "yes":
-        prompt = " [Y/n] "
-    elif default == "no":
-        prompt = " [y/N] "
-    else:
-        raise ValueError("invalid default answer: '%s'" % default)
-
-    while True:
-        sys.stdout.write(question + prompt)
-        choice = raw_input().lower()
-        if default is not None and choice == '':
-            return valid[default]
-        elif choice in valid:
-            return valid[choice]
-        else:
-            sys.stdout.write("Please respond with 'yes' or 'no' "
-                             "(or 'y' or 'n').\n")
-
-
 ## NODES
 def register():
-        """Collect all the data about a node and register
-           it with the server"""
+    """Collect all the data about a node and register
+       it with the server"""
 
-        data = collect_data()
-        data.register = True
+    data = collect_data()
 
-        log.debug('data is: {0}'.format(json.dumps(data, default=lambda o: o.__dict__)))
-        api_submit('/api/register', data, method='put')
-
-
-def search_nodes(args):
-    """Search for nodes and perform optional assignment
-       actions."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    return object_search(args)
+    log.debug('data is: {0}'.format(json.dumps(data, default=lambda o: o.__dict__)))
+    api_submit('/api/register', data, method='put')
 
 
-def convert(data):
-    """Helper method to format output. (might not be final solution)"""
+def set_status(status_name, nodes):
+    """Set the status of one or more nodes.
 
-    if isinstance(data, basestring):
-        return str(data)
-    elif isinstance(data, collections.Mapping):
-        return dict(map(convert, data.iteritems()))
-    elif isinstance(data, collections.Iterable):
-        return type(data)(map(convert, data))
-    else:
-        return data
+    :arg status: The name of the status you wish to set the node to.
+    :arg nodes: The nodes from the search results to set the status to.
 
+    Usage::
 
-def set_status(args, nodes):
-    """Set the status of one or more nodes."""
+      >>> client.set_status('inservice', <object_search results>)
+      <Response [200]>
+    """
 
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    data = {'status_name': args.set_status}
+    data = {'status_name': status_name,
+            'exact_get': True,
+    }
     status = api_submit('/api/statuses', data, method='get_params')
 
-    data = {'status_id': status['status_id']}
+    data = {'status_id': status['results'][0]['status_id']}
 
     for n in nodes:
-        log.info('Setting status node={0},status={1}'.format(n['node_name'], status['status_name']))
+        log.info('Setting status node={0},status={1}'.format(n['node_name'], status['results'][0]['status_name']))
         api_submit('/api/nodes/{0}'.format(n['node_id']), data, method='put')
 
 
-# FIXME: Not currently in use, are these needed? It makes it nicer on the command line for a user to type more straightforward commands like 'set' and 'delete', rahter than 'manage' with additional params.
-def set_node_group_assignments(node_groups, nodes):
-    """Assign or De-assign node_groups to one or more nodes.
+def create_node(unique_id, node_name, status_id):
+    """Create a new node.
 
-    :arg node_groups: The list of node groups to assign to the node.
-    :arg nodes: The nodes from the search results to assign to from the node_group.
-
-    Usage::
-
-      >>> client.set_node_group_assignments('defaul_install,node_group1', <object_search results>)
-      <Response [200]>
-    """
-
-    return manage_node_group_assignments(node_groups, nodes, 'put')
-
-
-# FIXME: Not currently in use, are these needed? It makes it nicer on the command line for a user to type more straightforward commands like 'set' and 'delete', rahter than 'manage' with additional params.
-def del_node_group_assignments(node_groups, nodes):
-    """De-assign node_groups from one or more nodes.
-
-    :arg node_groups: The list of node groups to de-assign from the node.
-    :arg nodes: The nodes from the search results to de-assign to from the node_group.
+    :arg unique_id: The unique_id of the node you wish to create.
+    :arg node_name: The name of the node you wish to create.
+    :arg status_id: The status_id of the status you wish to assign to the node.
 
     Usage::
 
-      >>> client.set_node_group_assignments('defaul_install,node_group1', <object_search results>)
+      >>> client.create_node('12345', 'myserver.mycompany.com', '1')
       <Response [200]>
     """
 
-    return manage_node_group_assignments(node_groups, nodes, 'delete')
+    # FIXME: Support hardware_profile, and operating_system?
+    data = {'node_name': node_name,
+            'unique_id': unique_id,
+            'node_status_id': status_id,
+           }
+
+    return api_submit('/api/nodes', data, method='put')
 
 
-# FIXME: Duplicate code with the next function
+def delete_node(node_id):
+    """Delete an existing node.
+
+    :arg node_id: The node_id you wish to delete.
+
+    Usage::
+
+      >>> client.delete_node('1')
+      <Response [200]>
+    """
+
+    data = {'node_id': node_id}
+    return api_submit('/api/nodes/{0}'.format(node_id), data, method='delete')
+
+
+## NODE_GROUPS
+def create_node_group(node_group_name, node_group_owner, node_group_description):
+    """Create a new node_group.
+
+    :arg node_group_name: The name of the node_group you wish to create.
+    :arg node_group_owner: The email address of the owner of the node group.
+    :arg node_group_description: A text description of the members of this node_group.
+
+    Usage::
+
+      >>> client.create_node_group('my_node_group', 'email@mycompany.com', 'The nodegroup for all the magical servers')
+      <Response [200]>
+    """
+
+    data = {'node_group_name': node_group_name,
+            'node_group_owner': node_group_owner,
+            'node_group_description': node_group_description,
+           }
+
+    log.info('Creating node_group node_group_name={0},node_group_owner={1},node_group_description={2}'.format(node_group_name, node_group_owner, node_group_description))
+    return api_submit('/api/node_groups', data, method='put')
+
+
+def delete_node_group(node_group_id):
+    """Delete an existing node_group.
+
+    :arg node_group_id: The id of the node_group you wish to delete.
+
+    Usage::
+
+      >>> client.delete_node_group('1')
+      <Response [200]>
+    """
+
+    # FIXME: Support name and id or ?
+    data = {'node_group_id': node_group_id}
+    return api_submit('/api/node_groups/{0}'.format(node_group_id), data, method='delete')
+
+
+# FIXME: Duplicate code with other manage_* functions
 def manage_node_group_assignments(node_groups, nodes, api_action = 'put'):
     """Assign or De-assign node_groups to one or more nodes.
 
@@ -531,12 +531,12 @@ def manage_node_group_assignments(node_groups, nodes, api_action = 'put'):
 
     Usage::
 
-      >>> client.manage_node_group_assignments('defaul_install,node_group1', <object_search results>, 'put')
+      >>> client.manage_node_group_assignments('node_group1,node_group2', <object_search results>, 'put')
       <Response [200]>
     """
 
     if api_action == 'delete':
-        log_a = 'Deleting'
+        log_a = 'Removing'
         log_p = 'from'
     else:
         log_a = 'Assigning'
@@ -546,17 +546,111 @@ def manage_node_group_assignments(node_groups, nodes, api_action = 'put'):
     for ng in node_groups.split(','):
         data = {'node_group_name': ng}
         r = api_submit('/api/node_groups', data, method='get_params')
-        if r:
-            node_groups_list.append(r['results'][0])
+        if r['results']:
+            for i in r['results']:
+                node_groups_list.append(i)
+        else:
+            log.info('Not found: node_group={0}'.format(ng))
 
-    for n in nodes:
-        for ng in node_groups_list:
-            log.info('{0} node_group={1} {2} node={3}'.format(log_a, ng['node_group_name'], log_p, n['node_name']))
-            data = {'node_id': n['node_id'],
-                    'node_group_id': ng['node_group_id']}
-            return api_submit('/api/node_group_assignments', data, method=api_action)
+    if node_groups_list:
+        for n in nodes:
+            for ng in node_groups_list:
+                log.info('{0} node_group={1} {2} node={3}'.format(log_a, ng['node_group_name'], log_p, n['node_name']))
+                data = {'node_id': n['node_id'],
+                        'node_group_id': ng['node_group_id']}
+                return api_submit('/api/node_group_assignments', data, method=api_action)
 
 
+## TAGS
+# FIXME: Duplicate code with other manage_* functions
+def manage_tag_assignments(tags, action_object, objects, api_action = 'put'):
+    """Assign or De-assign tags to one or more objects (nodes or node_groups).
+
+    :arg tags: The list of key=value tags to assign/de-assign to/from the node or nodegroup. Multiple tags separated by comma(,).
+    :arg action_object: The type of object you are tagging. Currently supported types are node and node_group.
+    :arg objects: The nodes or node_groups search results to assign or de-assign the tags to/from.
+    :arg api_action: Whether to put or delete.
+
+    Usage::
+
+      >>> client.manage_tag_assignments('mytag=value1', 'node', <object_search results>)
+      <Response [200]>
+      >>> client.manage_tag_assignments('mytag=value1,another_tag=value2', 'node_group', <object_search results>)
+      <Response [200]>
+      >>> client.manage_tag_assignments('mytag=value1', 'node', <object_search results>, 'delete')
+      <Response [200]>
+    """
+
+    o_id = action_object + '_id'
+    o_name = action_object + '_name'
+    if api_action == 'delete':
+        log_a = 'Removing'
+        log_p = 'from'
+    else:
+        log_a = 'Assigning'
+        log_p = 'to'
+
+    # FIXME: clunky
+    my_tags = []
+    for t in tags.split(','):
+        lst = t.split('=')
+        data = {'tag_name': lst[0],
+                'tag_value': lst[1],
+                'exact_get': True,
+        }
+        r = api_submit('/api/tags', data, method='get_params')
+        if r['results']:
+            my_tags.append(r['results'][0])
+        else:
+            log.info('No existing tag found, creating...')
+            r = api_submit('/api/tags', data, method='put')
+            my_tags.append(r)
+
+    for o in objects:
+        for t in my_tags:
+            log.info('{0} tag {1}={2} {3} {4}={5}'.format(log_a, t['tag_name'], t['tag_value'], log_p, o_name, o[o_name]))
+            data = {o_id: o[o_id],
+                    'tag_id': t['tag_id']}
+            api_submit('/api/tag_{0}_assignments'.format(action_object), data, method=api_action)
+
+
+def create_tag(tag_name, tag_value):
+    """Create a new tag.
+
+    :arg tag_name: The name of the tag you wish to create.
+    :arg tag_value: The value you wish to assign to the tag_name.
+
+    Usage::
+
+      >>> client.create_tag('mytag', 'value1')
+      <Response [200]>
+    """
+
+    data = {'tag_name': tag_name,
+            'tag_value': tag_value,
+           }
+
+    log.info('Creating tag tag_name={0},tag_value={1}'.format(tag_name, tag_value))
+    return api_submit('/api/tags', data, method='put')
+
+
+def delete_tag(tag_id):
+    """Delete an existing tag.
+
+    :arg tag_id: The id of the tag you wish to delete.
+
+    Usage::
+
+      >>> client.delete_tags('1')
+      <Response [200]>
+    """
+
+    data = {'tag_id': tag_id}
+    return api_submit('/api/tags/{0}'.format(tag_id), data, method='delete')
+
+
+## HYPERVISOR_ASSIGNMENTS
+# FIXME: Duplicate code with other manage_* functions
 def manage_hypervisor_assignments(hypervisor, nodes, api_action = 'put'):
     """Assign or De-assign a hypervisor to one or more nodes.
 
@@ -571,13 +665,15 @@ def manage_hypervisor_assignments(hypervisor, nodes, api_action = 'put'):
     """
 
     if api_action == 'delete':
-        log_a = 'Deleting'
+        log_a = 'Removing'
         log_p = 'from'
     else:
         log_a = 'Assigning'
         log_p = 'to'
 
-    data = {'unique_id': hypervisor}
+    data = {'unique_id': hypervisor,
+            'exact_get': True,
+    }
     r = api_submit('/api/nodes', data, method='get_params')
     if r['results']:
         hypervisor = r['results'][0]
@@ -589,291 +685,18 @@ def manage_hypervisor_assignments(hypervisor, nodes, api_action = 'put'):
             api_submit('/api/hypervisor_vm_assignments', data, method=api_action)
 
 
-def create_nodes(args):
-    """Create a new node."""
-
-    # FIXME: Support hardware_profile, and operating_system?
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    # Check if the node exists (by checking unique_id) first
-    # so it can ask if you want to update the existing entry, which
-    # essentially would just be changing either the node_name or status_id.
-    # FIXME: do we want exact_get to be optional on delete? i.e. put it in argparse?
-    data = { 'unique_id': args.unique_id,
-             'exact_get': True, }
-    r = api_submit('/api/nodes', data, method='get_params')
-
-    data = {'register': False,
-            'node_name': args.node_name,
-            'unique_id': args.unique_id,
-            'node_status_id': args.status_id,
-           }
-
-    if r:
-        if ask_yes_no('Entry already exists: {0}: {1}\n Would you like to update it?'.format(r[0]['node_name'], r[0]['unique_id']), args.answer_yes):
-            log.info('Updating node node_name={0},unique_id={1},status_id={2}'.format(args.node_name, args.unique_id, args.status_id))
-            api_submit('/api/{0}'.format(args.object_type), data, method='put')
-
-    else:
-        log.info('Creating node node_name={0},unique_id={1},status_id={2}'.format(args.node_name, args.unique_id, args.status_id))
-        api_submit('/api/{0}'.format(args.object_type), data, method='put')
-
-
-def delete_nodes(args):
-    """Delete an existing node."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    if args.node_id:
-        # FIXME: do we want exact_get to be optional on delete? i.e. put it in argparse?
-        args.exact_get = True
-        api_endpoint = '/api/nodes/{0}'.format(args.node_id)
-        r = api_submit(api_endpoint, method='get')
-        # FIXME: individual records don't return a list. Is that ok, or should the api always return a list?
-        if r:
-            results = [r]
-        else:
-            results = None
-    else:
-
-        search = ''
-        if args.node_name:
-            search = 'node_name={0},'.format(args.node_name)
-        if args.unique_id:
-            search = 'unique_id={0},'.format(args.unique_id)
-
-        args.search = search.rstrip(',')
-
-        # FIXME: do we want exact_get to be optional on delete? i.e. put it in argparse?
-        args.exact_get = True
-        results = _search(args)
-
-    if results:
-        r_names = []
-        for n in results:
-            r_names.append('{0}: {1}'.format(n['node_name'], n['unique_id']))
-
-        if ask_yes_no("We are ready to delete the following {0}: \n{1}\n Continue?".format(args.object_type, "\n".join(r_names)), args.answer_yes):
-            for n in results:
-                log.info('Deleting node_name={0},unique_id={1}'.format(n['node_name'], n['unique_id']))
-                data = {'node_id': n['node_id']}
-                api_submit('/api/{0}/{1}'.format(args.object_type, n['node_id']), data, method='delete')
-
-
-## NODE_GROUPS
-def search_node_groups(args):
-    """Search for node groups and perform optional assignment
-       actions."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    if (args.set_tags or args.del_tags):
-        results = _search(args)
-        if results:
-            r_names = []
-            for ng in results:
-                r_names.append('node_group_name={0},node_group_id={1}'.format(ng['node_group_name'], ng['node_group_id']))
-            if ask_yes_no("We are ready to update the following node_groups: \n{0}\n Continue?".format("\n".join(r_names)), args.answer_yes):
-                api_action = 'set'
-                if args.del_tags:
-                    api_action = 'delete'
-                _manage_tag_assignments(args, results, 'node_group', api_action)
-
-    if not any((args.set_tags, args.del_tags)):
-
-        results = _search(args)
-
-        if results:
-            if args.fields:
-                for r in results:
-                    print '- {0}'.format(r['node_group_name'])
-                    #FIXME: gross output, duplicate code
-                    if args.fields == 'all':
-                        for f in r.keys():
-                            if f == 'node_group_name':
-                                continue
-                            if type(r[f]) is types.ListType:
-                                print '{0}: \n{1}'.format(f, yaml.safe_dump(r[f], encoding='utf-8', allow_unicode=True))
-                            else:
-                                print '    {0}: {1}'.format(f, r[f])
-                    else:
-                        for f in list(args.fields.split(",")):
-                            if f == 'node_group_name':
-                                continue
-                            if type(r[f]) is types.ListType:
-                                print '{0}: \n{1}'.format(f, yaml.safe_dump(r[f], encoding='utf-8', allow_unicode=True))
-                            else:
-                                print '    {0}: {1}'.format(f, r[f])
-
-            # Default to returning just the node_group name
-            else:
-                for r in results:
-                    print r['node_group_name']
-
-
-def create_node_groups(args):
-    """Create a new node_group."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    data = {'node_group_name': args.node_group_name,
-            'node_group_owner': args.node_group_owner,
-            'node_group_description': args.node_group_description,
-           }
-
-    log.info('Creating node_group node_group_name={0},node_group_owner={1},node_group_description={2}'.format(args.node_group_name, args.node_group_owner, args.node_group_description))
-    api_submit('/api/{0}'.format(args.object_type), data, method='put')
-
-
-def delete_node_groups(args):
-    """Delete an existing node_group."""
-
-    # FIXME: Support name and id or ?
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    args.search = 'node_group_name={0}'.format(args.node_group_name)
-    # FIXME: do we want exact_get to be optional on delete? i.e. put it in argparse?
-    args.exact_get = True
-    results = _search(args)
-
-    if results:
-        r_names = []
-        for n in results:
-            r_names.append(n['node_group_name'])
-
-        if ask_yes_no("We are ready to delete the following {0}: \n{1}\n Continue?".format(args.object_type, "\n".join(r_names)), args.answer_yes):
-            for n in results:
-                log.info('Deleting node_group_name={0}'.format(n['node_group_name']))
-                data = {'node_group_id': n['node_group_id']}
-                # FIXME: name? id? both?
-                api_submit('/api/{0}/{1}'.format(args.object_type, n['node_group_id']), data, method='delete')
-
-
-## TAGS
-def search_tags(args):
-    """Search for tags and perform optional assignment
-       actions."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    if args.set_tags:
-        set_tag(args)
-
-    # switch to any if there's more than one
-    if not args.set_tags:
-
-        results = _search(args)
-
-        if args.fields:
-            for r in results:
-                print '- {0}'.format(r['tag_name'])
-                if args.fields == 'all':
-                    for f in r.keys():
-                        if f == 'tag_name':
-                            continue
-                        print '    {0}: {1}'.format(f, r[f])
-                else:
-                    for f in list(args.fields.split(",")):
-                        if f == 'tag_name':
-                            continue
-                        print '    {0}: {1}'.format(f, r[f])
-        # Default to returning just the tag name
-        else:
-            for r in results:
-                print r['tag_name']
-
-
-def manage_tag_assignments(args, objects, action_object, api_action = 'set'):
-    """Assign or De-assign tags to one or more objects (nodes or node_groups)."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    o_id = action_object + '_id'
-    o_name = action_object + '_name'
-    # FIXME: clunky
-    if api_action == 'delete':
-        my_tags = args.del_tags
-        http_method = 'delete'
-    else:
-        my_tags = args.set_tags
-        http_method = 'put'
-
-    tags = []
-    for t in my_tags.split(','):
-        lst = t.split('=')
-        data = {'tag_name': lst[0],
-                'tag_value': lst[1]
-        }
-        r = api_submit('/api/tags', data, method='get_params')
-        if r:
-            tags.append(r[0])
-        else:
-            log.info('tag not found, creating')
-            r = api_submit('/api/tags', data, method='put')
-            tags.append(r)
-
-    for o in objects:
-        for t in tags:
-            log.info('{0} tag {1}={2} to {3}={4}'.format(api_action, t['tag_name'], t['tag_value'], o_name, o[o_name]))
-            data = {o_id: o[o_id],
-                    'tag_id': t['tag_id']}
-            api_submit('/api/tag_{0}_assignments'.format(action_object), data, method=http_method)
-
-
-def create_tags(args):
-    """Create a new tag."""
-
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    data = {'tag_name': args.tag_name,
-            'tag_value': args.tag_value,
-           }
-
-    log.info('Creating tag tag_name={0},tag_value={1}'.format(args.tag_name, args.tag_value))
-    api_submit('/api/{0}'.format(args.object_type), data, method='put')
-
-
-def delete_tags(args):
-    """Delete an existing tag."""
-
-    # FIXME: Support name and id or ?
-    log.debug('action_command is: {0}'.format(args.action_command))
-    log.debug('object_type is: {0}'.format(args.object_type))
-
-    args.search = 'tag_name={0},tag_value={1}'.format(args.tag_name, args.tag_value)
-    # FIXME: do we want exact_get to be optional on delete? i.e. put it in argparse?
-    args.exact_get = True
-    results = _search(args)
-
-    if results:
-        r_names = []
-        for n in results:
-            r_names.append('{0}={1}'.format(n['tag_name'], n['tag_value']))
-
-        if ask_yes_no("We are ready to delete the following {0}: \n{1}\n Continue?".format(args.object_type, "\n".join(r_names)), args.answer_yes):
-            for n in results:
-                log.info('Deleting tag_name={0},tag_value={1}'.format(n['tag_name'], n['tag_value']))
-                data = {'tag_id': n['tag_id']}
-                # FIXME: name? id? both?
-                api_submit('/api/{0}/{1}'.format(args.object_type, n['tag_id']), data, method='delete')
-
-
+## MAIN_SETTINGS
 def check_root():
     """Check and see if we're running as root"""
+
     if not os.geteuid() == 0:
         log.error('Login {0} must run as root.'.format(login))
         sys.exit(1)
 
 
 def configSettings(conf, secret_conf = None):
+    """Read in all our configuration settings from the main .ini and
+       from the secrets.ini, if specified."""
 
     log_lines = []
     cp = ConfigParser.ConfigParser()
@@ -897,6 +720,7 @@ def configSettings(conf, secret_conf = None):
 
 
 def main(conf, secret_conf = None, args = None):
+    """Do stuff."""
 
     log_lines = configSettings(conf, secret_conf)
 
@@ -934,7 +758,7 @@ def main(conf, secret_conf = None, args = None):
 
     # log our overrides now that logging is configured.
     for line in log_lines:
-        log.info(line)
+        log.debug(line)
 
     if args.write_log:
         log.info('Messages are being written to the log file : %s'
