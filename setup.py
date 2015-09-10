@@ -25,7 +25,6 @@ requires = [
     'requests==2.7.0',
     ]
 
-
 setup(name='arsenalclientlib',
       version='0.1',
       description='Arsenal client library',
