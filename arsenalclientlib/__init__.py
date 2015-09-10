@@ -49,10 +49,10 @@ The arsenal client library.
 
 Usage::
 
-  >>>
   >>> import arsenalclientlib as client
   >>> client.main('/path/to/my/arsenal.ini', '/path/to/my/secret/arsenal.ini', args)
-  >>> client.manage_hypervisor_assignments('00:11:22:33:44:55', <object_search results>, 'put')
+  >>> results = client.object_search('nodes', 'node_name=myserver.mycompany.com', True)
+  >>> client.manage_hypervisor_assignments('00:11:22:33:44:55', results)
   <Response [200]>
 """
 
@@ -123,10 +123,10 @@ def authenticate():
     """Prompts for user password and authenticates against the API.
        Writes response cookies to file for later use."""
 
-    log.info('Authenticating login: %s' % (settings.login))
-    if settings.login == 'kaboom':
+    log.info('Authenticating login: %s' % (settings.user_login))
+    if settings.user_login == 'kaboom':
         password = 'password'
-    elif settings.login == 'hvm':
+    elif settings.user_login == 'hvm':
         password = settings.hvm_password
     else:
         password = getpass.getpass('password: ')
@@ -135,7 +135,7 @@ def authenticate():
         payload = {'form.submitted': True,
                    'api.client': True,
                    'return_url': '/api',
-                   'login': settings.login,
+                   'login': settings.user_login,
                    'password': password
         }
         # FIXME: api_submit?
@@ -690,7 +690,7 @@ def check_root():
     """Check and see if we're running as root"""
 
     if not os.geteuid() == 0:
-        log.error('Login {0} must run as root.'.format(login))
+        log.error('Login {0} must run as root.'.format(settings.user_login))
         sys.exit(1)
 
 
@@ -716,6 +716,10 @@ def configSettings(conf, secret_conf = None):
                     log_lines.append('Assigning secret setting: {0}_password={1}'.format(k, v))
                     setattr(settings, k + '_password', v)
 
+    # Have to do this becasue it can be a boolean or a string.
+    if (settings.ssl_verify == 'True' or settings.ssl_verify == 'False'):
+        settings.ssl_verify = bool(settings.ssl_verify)
+
     return log_lines
 
 
@@ -731,21 +735,21 @@ def main(conf, secret_conf = None, args = None):
 
     # FIXME: Should we write to the log file at INFO even when console is ERROR?
     # FIXME: Should we write to a log at all for regular users? Perhaps only if they ask for it i.e another option?
-    if args.verbose:
-        log_level = logging.DEBUG
-    elif args.quiet:
-        log_level = logging.ERROR
-    else:
-        log_level = logging.INFO
+    log_level = logging.INFO
+    if args:
+        if args.verbose:
+            log_level = logging.DEBUG
+        elif args.quiet:
+            log_level = logging.ERROR
 
-    # Set up logging to file
-    if args.write_log:
+        # Set up logging to file
+        if args.write_log:
 
-        logging.basicConfig(level=log_level,
-                            format='%(asctime)s %(levelname)-8s- %(message)s',
-                            datefmt='%Y-%m-%d %H:%M:%S',
-                            filename=settings.log_file,
-                            filemode='a')
+            logging.basicConfig(level=log_level,
+                                format='%(asctime)s %(levelname)-8s- %(message)s',
+                                datefmt='%Y-%m-%d %H:%M:%S',
+                                filename=settings.log_file,
+                                filemode='a')
 
     root = logging.getLogger()
     root.setLevel(log_level)
@@ -760,18 +764,20 @@ def main(conf, secret_conf = None, args = None):
     for line in log_lines:
         log.debug(line)
 
-    if args.write_log:
-        log.info('Messages are being written to the log file : %s'
-                 % settings.log_file)
+    if args:
+       if args.write_log:
+           log.info('Messages are being written to the log file : %s'
+                    % settings.log_file)
+
     log.info('Using server: %s'
              % settings.api_host)
 
-    if settings.login == 'kaboom':
+    if settings.user_login == 'kaboom':
         check_root()
         # FIXME: Will need os checking here
         settings.cookie_file = '/root/.arsenal_kaboom_cookie'
 
-    if settings.login == 'hvm':
+    if settings.user_login == 'hvm':
         check_root()
         # FIXME: Will need os checking here
         settings.cookie_file = '/root/.arsenal_hvm_cookie'
