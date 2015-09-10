@@ -31,7 +31,7 @@ with system python.
 %install
 rm -rf $RPM_BUILD_ROOT
 mkdir -p $RPM_BUILD_ROOT/usr/lib/python%{python_ver}/site-packages/
-cp -R arsenalclientlib $RPM_BUILD_ROOT/usr/lib/python%{python_ver}/site-packages/
+cp -R ../arsenalclientlib $RPM_BUILD_ROOT/usr/lib/python%{python_ver}/site-packages/
 
 %clean
 rm -rf $RPM_BUILD_ROOT
