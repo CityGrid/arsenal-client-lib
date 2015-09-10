@@ -13,4 +13,4 @@
 #  limitations under the License.
 #
 include *.rst *.cfg
-recursive-include arsenalweb *.png *.css *.gif *.jpg *.pt *.js *.sql
+recursive-include arsenalweb *.py
