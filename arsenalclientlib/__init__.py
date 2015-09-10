@@ -38,27 +38,14 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 requests.packages.urllib3.disable_warnings()
 session = requests.session()
 
-"""
-The arsenal client library.
-
-:arg conf: The path to the conf file (required)
-:arg secret_conf: The path to the secret_conf file
-:arg args: An object with all the optional arguments. args also
-           overrides any settings in the config file if they are
-           passed in as part of the args object.
-
-Usage::
-
-  >>> import arsenalclientlib as client
-  >>> client.main('/path/to/my/arsenal.ini', '/path/to/my/secret/arsenal.ini', args)
-  >>> results = client.object_search('nodes', 'node_name=myserver.mycompany.com', True)
-  >>> client.manage_hypervisor_assignments('00:11:22:33:44:55', results)
-  <Response [200]>
-"""
-
 
 def facter():
-    """Reads in facts from facter"""
+    """
+    Reads in facts from facter.
+
+    Returns:
+        A dict.
+    """
 
     # need this for custom facts - can add additional paths if needed
     os.environ["FACTERLIB"] = "/var/lib/puppet/lib/facter"
@@ -72,8 +59,13 @@ def facter():
 
 
 def get_cookie_auth():
-    """Gets cookies from cookie file or authenticates if no cookie file
-       is present"""
+    """
+    Gets cookies from cookie file or authenticates if no cookie file
+    is present
+
+    Returns:
+        A dict of all cookies.
+    """
 
     try:
         cookies = read_cookie()
@@ -89,7 +81,12 @@ def get_cookie_auth():
 
 
 def read_cookie():
-    """Reads cookies from cookie file"""
+    """
+    Reads cookies from cookie file
+
+    Returns:
+        A dict of all cookies if cookie_file is present, None otherwise.
+    """
 
     log.debug('Checking for cookie file: %s' % (settings.cookie_file))
     if os.path.isfile(settings.cookie_file):
@@ -103,7 +100,12 @@ def read_cookie():
 
 
 def write_cookie(cookies):
-    """Writes cookies to cookie file"""
+    """
+    Writes cookies to cookie file
+
+    Returns:
+        True if successful, False otherwise.
+    """
 
     log.info('Writing cookie file: %s' % (settings.cookie_file))
 
@@ -120,8 +122,13 @@ def write_cookie(cookies):
 
 
 def authenticate():
-    """Prompts for user password and authenticates against the API.
-       Writes response cookies to file for later use."""
+    """
+    Prompts for user password and authenticates against the API. Writes
+    response cookies to file for later use.
+
+    Returns:
+        A dict of all cookies if successful, None otherwise.
+    """
 
     log.info('Authenticating login: %s' % (settings.user_login))
     if settings.user_login == 'kaboom':
@@ -138,7 +145,6 @@ def authenticate():
                    'login': settings.user_login,
                    'password': password
         }
-        # FIXME: api_submit?
         r = session.post(settings.api_protocol
                          + '://'
                          + settings.api_host
@@ -165,8 +171,15 @@ def authenticate():
 
 
 def check_response_codes(r):
-    """Checks the response codes and logs appropriate messaging for
-       the client"""
+    """
+    Checks the response codes and logs appropriate messaging for the client.
+
+    Parameters:
+        r (requests.response): A response object from the requests package.
+
+    Returns:
+        Json if successful, http response code otherwise.
+    """
 
     if r.status_code == requests.codes.ok:
         log.info('Command successful.')
@@ -190,7 +203,36 @@ def check_response_codes(r):
 
 
 def api_submit(request, data=None, method='get'):
-    """Manages http requests to the API."""
+    """
+    Manages http requests to the API.
+
+    Usage:
+
+        >>> data = {'unique_id': '12345'}
+        >>> api_submit('/api/nodes/1')
+        <{json object}>
+        >>> api_submit('/api/nodes', data, 'put')
+        <{json object}>
+        >>> api_submit('/api/nodes', data, 'delete')
+        <{json object}>
+        >>> api_submit('/api/nodes', data, 'get_params')
+        <{json object}>
+        >>> api_submit('/api/invalid', data, 'get_params')
+        <Response 404>
+
+    Args:
+        request (str): The uri endpoint to request.
+        data (dict): A dict of paramters to send with the http request.
+        method (str): The http method to use. Valid choices are:
+            put
+            delete
+            get_params
+            delete
+
+    Returns:
+        check_response_codes() if 'put' or 'delete', json if sccessful
+        'get', None otherwise.
+    """
 
     headers = {'content-type': 'application/json'}
 
@@ -245,16 +287,24 @@ def api_submit(request, data=None, method='get'):
 
 
 def object_search(object_type, search, exact_get = None):
-    """Main serach function to query the API.
+    """
+    Main serach function to query the API.
 
-    :arg object_type: The type of object we are searching for (nodes, node_groups, statuses, etc.)
-    :arg search: The key=value search terms. Multiple values separated by comma (,). Multiple keys sparated by colon (:).
-    :arg exact_get: Whether to search for terms exactly or use losse filtering.
-
-    Usage::
+    Usage:
 
       >>> client.object_search('nodes', 'node_name=myserver,unique_id=1234', True)
       <Response [200]>
+      >>> client.object_search('nodes', 'node_name=invalid', True)
+      <Response [404]>
+
+    Args:
+        object_type (str): The type of object we are searching for (nodes,
+            node_groups, statuses, etc.)
+        search (str): The key=value search terms. Multiple values separated
+            by comma (,). Multiple keys sparated by ampersand (&). If multiple
+            keys are used, string must be quoted.
+        exact_get (str): Whether to search for terms exactly or use wildcard
+            matching.
     """
 
     search_terms = list(search.split("&"))
@@ -276,7 +326,9 @@ def object_search(object_type, search, exact_get = None):
 
 
 def get_unique_id(**facts):
-    """Determines the unique_id of a node"""
+    """
+    Determines the unique_id of a node.
+    """
 
     log.debug('determining unique_id...')
     if facts['kernel'] == 'Linux' or facts['kernel'] == 'FreeBSD':
@@ -724,7 +776,24 @@ def configSettings(conf, secret_conf = None):
 
 
 def main(conf, secret_conf = None, args = None):
-    """Do stuff."""
+    """
+    The arsenal client library.
+
+    Usage::
+
+      >>> import arsenalclientlib as client
+      >>> client.main('/path/to/my/arsenal.ini', '/path/to/my/secret/arsenal.ini', args)
+      >>> results = client.object_search('nodes', 'node_name=myserver.mycompany.com', True)
+      >>> client.manage_hypervisor_assignments('00:11:22:33:44:55', results)
+      <Response [200]>
+
+    Args:
+        conf (str): The path to the conf file
+        secret_conf (Optional[str]): The path to the secret_conf file
+        args (Optional[obj]): An object with all the optional arguments. args
+            also overrides any settings in the config file if they are passed
+            in as part of the args object.
+    """
 
     log_lines = configSettings(conf, secret_conf)
 
