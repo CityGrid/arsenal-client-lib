@@ -26,7 +26,7 @@ requires = [
     ]
 
 setup(name='arsenalclientlib',
-      version='0.1',
+      version='0.2',
       description='Arsenal client library',
       long_description=README + '\n\n' + CHANGELOG,
       classifiers=[
