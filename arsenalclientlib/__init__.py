@@ -257,13 +257,11 @@ def object_search(object_type, search, exact_get = None):
       <Response [200]>
     """
 
-    log.debug('Searching for {0}'.format(object_type))
-
-    search_terms = list(search.split(":"))
+    search_terms = list(search.split("&"))
     data = dict(u.split("=") for u in search_terms)
     data['exact_get'] = exact_get
 
-    log.debug('data is: {0}'.format(data))
+    log.debug('Searching for: {0}'.format(data))
 
     api_endpoint = '/api/{0}'.format(object_type)
     results = api_submit(api_endpoint, data, method='get_params')
@@ -679,10 +677,12 @@ def manage_hypervisor_assignments(hypervisor, nodes, api_action = 'put'):
         hypervisor = r['results'][0]
 
         for n in nodes:
-            log.info('{0} hypervisor={1},node={2}'.format(log_a, hypervisor['node_name'], log_p, n['node_name']))
+            log.info('{0} hypervisor={1} {2} node={3}'.format(log_a, hypervisor['node_name'], log_p, n['node_name']))
             data = {'parent_node_id': hypervisor['node_id'],
                     'child_node_id': n['node_id']}
             api_submit('/api/hypervisor_vm_assignments', data, method=api_action)
+    else:
+        log.info('No hypervisor found: unique_id={0}'.format(hypervisor))
 
 
 ## MAIN_SETTINGS
@@ -735,27 +735,32 @@ def main(conf, secret_conf = None, args = None):
 
     # FIXME: Should we write to the log file at INFO even when console is ERROR?
     # FIXME: Should we write to a log at all for regular users? Perhaps only if they ask for it i.e another option?
-    log_level = logging.INFO
+    if settings.log_level:
+        settings.log_level = getattr(logging, settings.log_level)
+    else:
+        settings.log_level = logging.INFO
+
+    # FIXME: need better way to deal with args not being passed
     if args:
         if args.verbose:
-            log_level = logging.DEBUG
+            settings.log_level = logging.DEBUG
         elif args.quiet:
-            log_level = logging.ERROR
+            settings.log_level = logging.ERROR
 
         # Set up logging to file
         if args.write_log:
 
-            logging.basicConfig(level=log_level,
+            logging.basicConfig(level=settings.log_level,
                                 format='%(asctime)s %(levelname)-8s- %(message)s',
                                 datefmt='%Y-%m-%d %H:%M:%S',
                                 filename=settings.log_file,
                                 filemode='a')
 
     root = logging.getLogger()
-    root.setLevel(log_level)
+    root.setLevel(settings.log_level)
 
     console = logging.StreamHandler(sys.stdout)
-    console.setLevel(log_level)
+    console.setLevel(settings.log_level)
     formatter = logging.Formatter('%(levelname)-8s- %(message)s')
     console.setFormatter(formatter)
     root.addHandler(console)
@@ -764,6 +769,7 @@ def main(conf, secret_conf = None, args = None):
     for line in log_lines:
         log.debug(line)
 
+    # FIXME: need better way to deal with args not being passed
     if args:
        if args.write_log:
            log.info('Messages are being written to the log file : %s'
