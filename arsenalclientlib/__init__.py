@@ -130,44 +130,48 @@ def authenticate():
         A dict of all cookies if successful, None otherwise.
     """
 
-    log.info('Authenticating login: %s' % (settings.user_login))
-    if settings.user_login == 'kaboom':
-        password = 'password'
-    elif settings.user_login == 'hvm':
-        password = settings.hvm_password
+    if settings.user_login == 'read_only':
+        log.error('Write access denied for read_only user.')
+        sys.exit(1)
     else:
-        password = getpass.getpass('password: ')
-
-    try:
-        payload = {'form.submitted': True,
-                   'api.client': True,
-                   'return_url': '/api',
-                   'login': settings.user_login,
-                   'password': password
-        }
-        r = session.post(settings.api_protocol
-                         + '://'
-                         + settings.api_host
-                         + '/login', data=payload)
-
-        if r.status_code == requests.codes.ok:
-
-            cookies = session.cookies.get_dict()
-            log.debug('Cookies are: %s' %(cookies))
-            try:
-                write_cookie(cookies)
-                return cookies
-            except Exception, e:
-                log.error('Exception: %s' % e)
-
+        log.info('Authenticating login: %s' % (settings.user_login))
+        if settings.user_login == 'kaboom':
+            password = 'password'
+        elif settings.user_login == 'hvm':
+            password = settings.hvm_password
         else:
+            password = getpass.getpass('password: ')
+
+        try:
+            payload = {'form.submitted': True,
+                       'api.client': True,
+                       'return_url': '/api',
+                       'login': settings.user_login,
+                       'password': password
+            }
+            r = session.post(settings.api_protocol
+                             + '://'
+                             + settings.api_host
+                             + '/login', data=payload)
+
+            if r.status_code == requests.codes.ok:
+
+                cookies = session.cookies.get_dict()
+                log.debug('Cookies are: %s' %(cookies))
+                try:
+                    write_cookie(cookies)
+                    return cookies
+                except Exception, e:
+                    log.error('Exception: %s' % e)
+
+            else:
+                log.error('Authentication failed')
+                sys.exit(1)
+
+        except Exception, e:
+            log.error('Exception: %s' % e)
             log.error('Authentication failed')
             sys.exit(1)
-
-    except Exception, e:
-        log.error('Exception: %s' % e)
-        log.error('Authentication failed')
-        sys.exit(1)
 
 
 def check_response_codes(r):
@@ -811,13 +815,13 @@ def main(conf, secret_conf = None, args = None):
 
     # FIXME: need better way to deal with args not being passed
     if args:
-        if args.verbose:
+        if hasattr(args, 'verbose') and args.verbose:
             settings.log_level = logging.DEBUG
-        elif args.quiet:
+        elif hasattr(args, 'quiet') and args.quiet:
             settings.log_level = logging.ERROR
 
         # Set up logging to file
-        if args.write_log:
+        if hasattr(args, 'write_log') and args.write_log:
 
             logging.basicConfig(level=settings.log_level,
                                 format='%(asctime)s %(levelname)-8s- %(message)s',
@@ -840,19 +844,23 @@ def main(conf, secret_conf = None, args = None):
 
     # FIXME: need better way to deal with args not being passed
     if args:
-       if args.write_log:
+       if hasattr(args, 'write_log') and args.write_log:
            log.info('Messages are being written to the log file : %s'
                     % settings.log_file)
 
     log.info('Using server: %s'
              % settings.api_host)
 
-    if settings.user_login == 'kaboom':
-        check_root()
-        # FIXME: Will need os checking here
-        settings.cookie_file = '/root/.arsenal_kaboom_cookie'
+    if hasattr(settings, 'user_login'):
+        if settings.user_login == 'kaboom':
+            check_root()
+            # FIXME: Will need os checking here
+            settings.cookie_file = '/root/.arsenal_kaboom_cookie'
+    
+        if settings.user_login == 'hvm':
+            check_root()
+            # FIXME: Will need os checking here
+            settings.cookie_file = '/root/.arsenal_hvm_cookie'
+    else:
+        setattr(settings, 'user_login', 'read_only')
 
-    if settings.user_login == 'hvm':
-        check_root()
-        # FIXME: Will need os checking here
-        settings.cookie_file = '/root/.arsenal_hvm_cookie'
